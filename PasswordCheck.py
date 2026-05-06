@@ -40,8 +40,15 @@ def check_digits(password: str) -> tuple[int, str]:
         return 1, "Тоо агуулагдсан байна."
     return 0, "Тоо алга байна."
 
+def load_blacklist(file_path: str) -> list[str]:
+    # Файлыг нээж, мөр бүрийг уншаад жагсаалт болгох
+    with open(file_path, 'r') as f:
+        # strip() нь мөрийн төгсгөлд байгаа шинэ мөр шилжүүлэх тэмдэгт (\n)-ийг арилгана
+        return [line.strip().lower() for line in f if line.strip()]
+# Файлаас үгсээ уншиж авъя
+
 def check_dictionary(password: str) -> tuple[int, str]:
-    blacklist = ["password", "12345", "123456", "admin", "qwerty"]
+    blacklist = load_blacklist("blacklist.txt")
     lower_pwd = password.lower() 
     for bad_word in blacklist:
         if bad_word in lower_pwd:
