@@ -1,7 +1,7 @@
 import string
 import os
 import sys
-
+from pathlib import Path
 # Windows систем дээр ANSI өнгөний кодыг дэмждэг болгож идэвхжүүлэх
 if os.name == 'nt':
     import ctypes
@@ -17,7 +17,7 @@ RED = "\033[91m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RESET = "\033[0m"
-
+FILE_PATH = Path(__file__).parent / "blacklist.txt"
 # Шалгах функцууд (хэвээр үлдсэн)
 def check_length(password: str) -> tuple[int, str]:
     length = len(password)
@@ -40,15 +40,13 @@ def check_digits(password: str) -> tuple[int, str]:
         return 1, "Тоо агуулагдсан байна."
     return 0, "Тоо алга байна."
 
-def load_blacklist(file_path: str) -> list[str]:
-    # Файлыг нээж, мөр бүрийг уншаад жагсаалт болгох
-    with open(file_path, 'r') as f:
-        # strip() нь мөрийн төгсгөлд байгаа шинэ мөр шилжүүлэх тэмдэгт (\n)-ийг арилгана
-        return [line.strip().lower() for line in f if line.strip()]
-# Файлаас үгсээ уншиж авъя
+def load_blacklist() -> set[str]: # Жагсаалт биш олонлог буцаана
+    with open(FILE_PATH, 'r', encoding='utf-8') as f:
+        # {} хаалт ашиглан set (олонлог) үүсгэж байна
+        return {line.strip().lower() for line in f if line.strip()}
 
 def check_dictionary(password: str) -> tuple[int, str]:
-    blacklist = load_blacklist("blacklist.txt")
+    blacklist = load_blacklist()
     lower_pwd = password.lower() 
     for bad_word in blacklist:
         if bad_word in lower_pwd:
