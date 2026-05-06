@@ -1,5 +1,24 @@
 import string
+import os
+import sys
 
+# Windows систем дээр ANSI өнгөний кодыг дэмждэг болгож идэвхжүүлэх
+if os.name == 'nt':
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+    import msvcrt
+else:
+    import tty
+    import termios
+
+# Терминалын өнгөнүүд
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+RESET = "\033[0m"
+
+# Шалгах функцууд (хэвээр үлдсэн)
 def check_length(password: str) -> tuple[int, str]:
     length = len(password)
     if length < 8:
@@ -36,36 +55,97 @@ def check_symbols(password: str) -> tuple[int, str]:
         return 1, "Тусгай тэмдэгт орсон байна."
     return 0, "Тусгай тэмдэгт байхгүй байна."
 
-def calc_score(password: str) -> tuple[int, list[str]]:
+# Оноо болон мэдээллийг жагсааж буцаах
+def calc_score(password: str) -> tuple[int, list[tuple[int, str]]]:
     total = 0
     messages = []
+    # Шалгалт бүрийн оноо болон текстийг хадгална
     for check in (check_length, check_upper_lower, check_digits, check_symbols, check_dictionary):
         score, msg = check(password)
         total += score
-        messages.append(msg)
+        messages.append((score, msg))
     return total, messages
 
 def classify(score: int) -> str:
     if score <= 1:
-        return "Маш сул"
+        return f"{RED}Маш сул{RESET}"
     elif score == 2:
-        return "Сул"
+        return f"{RED}Сул{RESET}"
     elif score == 3:
-        return "Дунд зэрэг"
+        return f"{YELLOW}Дунд зэрэг{RESET}"
     elif score == 4:
-        return "Сайн"
+        return f"{GREEN}Сайн{RESET}"
     else:
-        return "Маш сайн"
+        return f"{GREEN}Маш сайн{RESET}"
+
+# Товчлуур дарахыг шууд мэдрэх функц (OS-оос хамаарч өөр ажиллана)
+def get_key_char() -> bytes | None:
+    if os.name == 'nt':
+        ch = msvcrt.getch()
+        if ch in (b'\x00', b'\xe0'):  # Функционал товчлуурууд (сум гэх мэт)
+            msvcrt.getch()
+            return None
+        return ch
+    else:
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch.encode('utf-8')
 
 def main():
-    print("=== Нууц үгийн хүч шалгах хэрэгсэл ===")
-    pwd = input("Нууц үг оруулна уу: ")
-    score, msgs = calc_score(pwd)
-    print("\nДүн:")
-    for m in msgs:
-        print("-", m)
-    print(f"Нийт оноо: {score} / 6")
-    print("Үнэлгээ:", classify(score))
+    password = ""
+    
+    while True:
+        # Дэлгэцийг цэвэрлэх (Шууд шинэчлэгдэж байгаа мэт харагдуулна)
+        print("\033[H\033[2J\033[3J", end="")
+        
+        print("=== Нууц үгийн хүч шалгах хэрэгсэл (Мэдрэгч горим) ===")
+        print("Бичиж дуусаад 'Enter' дарж баталгаажуулна уу.\n")
+        
+        # Нууц үгийг харуулах (Хэрэв нууцлахыг хүсвэл '*' * len(password) гэж бичиж болно)
+        print(f"Нууц үг: {password}")
+        print("-" * 55)
+        
+        score, msgs = calc_score(password)
+        
+        # Үр дүнг өнгөтэйгөөр хэвлэх
+        print("Шалгуур үзүүлэлтүүд:")
+        for status_score, msg in msgs:
+            if status_score == 0:
+                # Шаардлага хангаагүй бол УЛААН
+                print(f" {RED}✗ {msg}{RESET}")
+            else:
+                # Хангасан бол НОГООН
+                print(f" {GREEN}✓ {msg}{RESET}")
+                
+        print("-" * 55)
+        print(f"Нийт оноо: {score} / 6")
+        print("Үнэлгээ:", classify(score))
+        
+        # Хэрэглэгчийн дараагийн товчлуурыг хүлээх
+        char_bytes = get_key_char()
+        if char_bytes is None:
+            continue
+            
+        # Enter дарагдсан бол дуусгах
+        if char_bytes in (b'\r', b'\n'):
+            break
+        # Backspace дарагдсан бол сүүлийн тэмдэгтийг устгах
+        elif char_bytes in (b'\x08', b'\x7f'):
+            password = password[:-1]
+        else:
+            try:
+                char_str = char_bytes.decode('utf-8')
+                if char_str.isprintable():
+                    password += char_str
+            except UnicodeDecodeError:
+                pass
+
+    print("\nБаярлалаа! Таны нууц үг хадгалагдлаа.")
 
 if __name__ == "__main__":
     main()
