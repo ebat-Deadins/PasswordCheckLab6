@@ -1,4 +1,4 @@
-import string, os, sys, math
+import string, os, sys, math, re
 from pathlib import Path
 
 if os.name == 'nt':
@@ -53,7 +53,6 @@ def check_dictionary(pw):
         return 1, "Blacklist шалгалт алгасав (файл олдсонгүй)"
 
 def check_no_repeats(pw):
-    # "aaaa" "1111" гэх мэт давтагдсан тэмдэгт шалгах
     if len(pw) >= 3 and any(pw[i] == pw[i+1] == pw[i+2] for i in range(len(pw)-2)):
         return 0, "Ижил тэмдэгт дараалан давтагдсан (aaa, 111...)"
     return 1, "Давтагдсан тэмдэгт байхгүй"
@@ -66,7 +65,29 @@ def calc_score(pw):
         msgs.append((s, m))
     return total, msgs
 
-# ── Энтропи (мэдээллийн нягт) ────────────────────────────────────────────────
+# ── Нууц үгийн мессежэд байгаа үгийг mask хийх ──────────────────────────────
+# show=False үед 'yourmom' → 'y******' болгоно
+
+def mask_quoted_word(msg):
+    """'word' хэлбэрийн pattern-ийг эхний үсгийг үлдээж mask хийнэ."""
+    def replacer(m):
+        w = m.group(1)
+        if len(w) <= 1:
+            return f"'{w}'"
+        return f"'{w[0]}{'*' * (len(w) - 1)}'"
+    return re.sub(r"'([^']+)'", replacer, msg)
+
+def format_msgs(msgs, show):
+    """show=False үед blacklist мессежийн үгийг mask хийнэ."""
+    if show:
+        return msgs
+    result = []
+    for s, m in msgs:
+        # Зөвхөн blacklist мессежэд quoted word байдаг тул бүгдэнд ашиглана
+        result.append((s, mask_quoted_word(m)))
+    return result
+
+# ── Энтропи ──────────────────────────────────────────────────────────────────
 
 def entropy(pw):
     if not pw: return 0
@@ -83,7 +104,7 @@ def entropy_label(bits):
     if bits < 60:  return f"{GREEN}{bits} bit - сайн{RESET}"
     return             f"{GREEN}{BOLD}{bits} bit - маш найдвартай{RESET}"
 
-# ── Дараагийн алхам санал болгох (hint) ──────────────────────────────────────
+# ── Hint ──────────────────────────────────────────────────────────────────────
 
 def next_hint(msgs):
     for s, m in msgs:
@@ -91,7 +112,7 @@ def next_hint(msgs):
             return f"{CYAN}Зөвлөгөө: {m}{RESET}"
     return f"{GREEN}Бүх шаардлага хангасан!{RESET}"
 
-# ── Хүч мөр (strength bar) ────────────────────────────────────────────────────
+# ── Strength bar ──────────────────────────────────────────────────────────────
 
 LABELS = ["Маш сул","Маш сул","Сул","Дунд","Сайн","Маш сайн","Маш сайн","Маш сайн"]
 
@@ -112,37 +133,40 @@ def get_key():
     fd, old = sys.stdin.fileno(), termios.tcgetattr(sys.stdin.fileno())
     try:
         tty.setraw(fd)
-        return sys.stdin.buffer.read(1)   # байт зөв уншина (multi-byte fix)
+        return sys.stdin.buffer.read(1)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
-# ── Үндсэн гогцоо ─────────────────────────────────────────────────────────────
+def clear():
+    sys.stdout.write("\033[H\033[2J\033[3J"); sys.stdout.flush()
 
-def main():
+# ── Үндсэн нууц үг оруулах дэлгэц ───────────────────────────────────────────
+
+def input_password():
     pw, show = "", False
 
     while True:
-        sys.stdout.write("\033[H\033[2J\033[3J"); sys.stdout.flush()
+        clear()
+        score, msgs        = calc_score(pw)
+        bits               = entropy(pw)
+        masked             = pw if show else "*" * len(pw)
+        toggle             = "нуух" if show else "харуулах"
+        display_msgs       = format_msgs(msgs, show)   # ← mask буюу бүтэн
 
-        score, msgs = calc_score(pw)
-        bits        = entropy(pw)
-        masked      = pw if show else "*" * len(pw)
-        toggle      = "nuuh" if show else "haruulah"
-
-        print(f"{BOLD}=== Nuuts ugiin huch shalgagch ==={RESET}\n")
-        print(f"  Nuuts ug : {masked}_")
-        print(f"  Huch     : {strength_bar(score)}")
-        print(f"  Entropi  : {entropy_label(bits)}")
-        print(f"  Onoo     : {score}/{MAX_SCORE}\n")
+        print(f"{BOLD}=== Нууц үгийн хүч шалгагч ==={RESET}\n")
+        print(f"  Нууц үг  : {masked}_")
+        print(f"  Хүч      : {strength_bar(score)}")
+        print(f"  Энтропи  : {entropy_label(bits)}")
+        print(f"  Оноо     : {score}/{MAX_SCORE}\n")
         print("  " + "-" * 44)
 
-        for s, m in msgs:
+        for s, m in display_msgs:
             icon = f"{GREEN}+{RESET}" if s > 0 else f"{RED}-{RESET}"
             print(f"  [{icon}] {m}")
 
         print("  " + "-" * 44)
-        print(f"  {next_hint(msgs)}\n")
-        print(f"  {GRAY}[Enter] Batalgaajuulah  [Tab] {toggle}  [Ctrl+C] Garах{RESET}")
+        print(f"  {next_hint(display_msgs)}\n")
+        print(f"  {GRAY}[Enter] Баталгаажуулах  [Tab] {toggle}  [Ctrl+C] Гарах{RESET}")
 
         ch = get_key()
         if ch is None:               continue
@@ -157,7 +181,79 @@ def main():
             except UnicodeDecodeError:
                 pass
 
-    print(f"\n  {GREEN}Nuuts ug batalgaajlaa!{RESET}\n")
+    return pw
+
+# ── Confirm password дэлгэц ───────────────────────────────────────────────────
+
+def confirm_password(original):
+    """
+    Нууц үгийг дахин оруулуулж тохирч байгаа эсэхийг шалгана.
+    Буруу бол retry боломж олгоно.
+    """
+    attempt, show, error_msg = "", False, ""
+
+    while True:
+        clear()
+        masked = attempt if show else "*" * len(attempt)
+        toggle = "нуух" if show else "харуулах"
+
+        # Урт нь таарч байвал match indicator харуулна
+        if attempt:
+            if original.startswith(attempt):
+                match_hint = f"{CYAN}Таарч байна...{RESET}"
+            else:
+                match_hint = f"{RED}Таарахгүй байна{RESET}"
+        else:
+            match_hint = f"{GRAY}Нууц үгээ дахин оруулна уу{RESET}"
+
+        print(f"{BOLD}=== Нууц үгийн хүч шалгагч ==={RESET}\n")
+        print(f"  Нууц үг дахин оруулах\n")
+        print(f"  Нууц үг  : {masked}_")
+        print(f"  Байдал   : {match_hint}\n")
+
+        if error_msg:
+            print(f"  {RED}✗ {error_msg}{RESET}\n")
+
+        print(f"  {GRAY}[Enter] Баталгаажуулах  [Tab] {toggle}  [Ctrl+C] Гарах{RESET}")
+
+        ch = get_key()
+        if ch is None:               continue
+        if ch == b'\x03':            print(); sys.exit(0)
+        if ch == b'\t':              show = not show; continue
+        if ch in (b'\x08', b'\x7f'):
+            attempt = attempt[:-1]
+            error_msg = ""
+            continue
+        if ch in (b'\r', b'\n'):
+            if attempt == original:
+                return True          # ✓ Тохирсон
+            else:
+                error_msg = "Нууц үг таарахгүй байна! Дахин оролдоно уу."
+                attempt = ""         # Талбарыг цэвэрлэж retry хийнэ
+                continue
+        try:
+            c = ch.decode('utf-8')
+            if c.isprintable():
+                attempt += c
+                error_msg = ""
+        except UnicodeDecodeError:
+            pass
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def main():
+    pw = input_password()
+    confirm_password(pw)
+
+    clear()
+    score, _ = calc_score(pw)
+    bits     = entropy(pw)
+
+    print(f"{BOLD}=== Нууц үгийн хүч шалгагч ==={RESET}\n")
+    print(f"  {GREEN}{BOLD}✓ Нууц үг амжилттай баталгаажлаа!{RESET}\n")
+    print(f"  Хүч     : {strength_bar(score)}")
+    print(f"  Энтропи : {entropy_label(bits)}")
+    print(f"  Оноо    : {score}/{MAX_SCORE}\n")
 
 if __name__ == "__main__":
     main()
